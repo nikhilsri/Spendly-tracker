@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#020617" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <title>Spendly – Couple AI Expense Tracker</title>
     <style>
         :root {
@@ -38,42 +40,58 @@
         canvas{margin-top:14px}
     </style>
 </head>
-<body>
-<div class="app">
-    <h1>Spendly</h1>
-    <p>Couple AI-powered expense tracker</p>
 
-    <div class="row">
-        <input type="month" id="monthFilter" />
-        <!-- Month selector fix: ensure clickable on mobile/desktop -->
-    </div>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import {
+        getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import {
+        getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy
+    } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-    <div class="row">
-        <input id="amount" type="number" step="0.01" placeholder="Amount" />
-        <select id="currency">
-            <option value="INR">₹ INR</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option><option value="THB">฿ THB</option><option value="MYR">RM MYR</option>
-        </select>
-    </div>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCVP058K-vfHdmNS3HkR7j9LofDG8i3Kdc",
+        authDomain: "spendly-tracker.firebaseapp.com",
+        projectId: "spendly-tracker",
+        storageBucket: "spendly-tracker.firebasestorage.app",
+        messagingSenderId: "193786715968",
+        appId: "1:193786715968:web:43d3279fe2ef3049e8e4a5",
+        measurementId: "G-2MPDP7KWGL"
+    };
 
-    <div class="row">
-        <select id="category">
-            <option>Food</option><option>Travel</option><option>Groceries</option><option>Shopping</option><option>Entertainment</option><option>Health</option><option>Family Transfers</option><option>Bank Deposits</option><option>Mutual Funds/Stocks</option><option>Other</option>
-        </select>
-        <select id="owner"><option value="me">Nikku</option><option value="partner">Wifey</option></select>
-    </div>
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
 
-    <button id="addBtn">+ Add Expense</button>
+    window.firebase = { auth, db, provider };
+    let expenses = [];
+    function subscribeToExpenses() {
+        const q = query(
+            collection(db, "users", userId, "expenses"),
+            orderBy("date", "desc")
+        );
 
-    <ul id="list"></ul>
-
-    <canvas id="trend" height="140"></canvas>
-    <canvas id="compare" height="140"></canvas>
-
-    <div class="ai" id="ai"></div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
+        onSnapshot(q, snapshot => {
+            expenses = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            render();
+        });
+    }
+    const loginBtn = document.getElementById('loginBtn');
+    let userId = null;
+    loginBtn.onclick = async () => {
+        await signInWithPopup(auth, provider);
+    };
+    onAuthStateChanged(auth, user => {
+        if (!user) return;
+        userId = user.uid;
+        loginBtn.style.display = 'none';
+        subscribeToExpenses();
+    });
     const monthFilter=document.getElementById('monthFilter');
     const amountInput=document.getElementById('amount');
     const currencyInput=document.getElementById('currency');
@@ -83,26 +101,45 @@
     const aiBox=document.getElementById('ai');
     const trendCtx=document.getElementById('trend').getContext('2d');
     const compareCtx=document.getElementById('compare').getContext('2d');
+    const categoryPieCtx=document.getElementById('categoryPie').getContext('2d');
 
-    let expenses=JSON.parse(localStorage.getItem('expenses')||'[]');
-    let trendChart=null,compareChart=null;
+    let trendChart=null,compareChart=null,categoryPieChart=null;
 
     monthFilter.value=new Date().toISOString().slice(0,7);
     monthFilter.addEventListener('change',render);
+    async function addExpense() {
+        monthFilter.value = new Date().toISOString().slice(0,7);
 
-    function addExpense(){
+        const amount = Number(amountInput.value);
+        if (!amount || amount <= 0) return;
+
+        await addDoc(
+            collection(db, "users", userId, "expenses"),
+            {
+                amount,
+                currency: currencyInput.value,
+                category: categoryInput.value,
+                owner: ownerInput.value,
+                date: new Date().toISOString()
+            }
+        );
+
+        amountInput.value = "";
+    }
+    /*function addExpense(){
         monthFilter.value=new Date().toISOString().slice(0,7);
         const amount=Number(amountInput.value);
         if(!amount||amount<=0)return;
         expenses.push({id:Date.now(),amount,currency:currencyInput.value,category:categoryInput.value,owner:ownerInput.value,date:new Date().toISOString()});
         amountInput.value='';save();
-    }
+    }*/
 
     document.getElementById('addBtn').onclick=addExpense;
 
-    function deleteExpense(id){expenses=expenses.filter(e=>e.id!==id);save();}
-
-    function save(){localStorage.setItem('expenses',JSON.stringify(expenses));render();}
+    async function deleteExpense(id){
+        await deleteDoc(doc(db, "users", userId, "expenses", id));
+    }
+    window.deleteExpense = deleteExpense;
 
     function render(){
         list.innerHTML='';
@@ -113,10 +150,11 @@
         filtered.slice().reverse().forEach(e=>{
             if(e.owner==='me')me+=e.amount; else partner+=e.amount;
             const li=document.createElement('li');
-            li.innerHTML=`<span>${e.category} <span class="pill ${e.owner}">${e.owner==='me'?'Nikku':'Wifey'}</span></span><span>${format(e.amount,e.currency)} <button class="delete" onclick="deleteExpense(${e.id})">✕</button></span>`;
+            li.innerHTML=`<span>${e.category} <span class="pill ${e.owner}">${e.owner==='me'?'Nikku':'Wifey'}</span></span><span>${format(e.amount,e.currency)} <button class="delete" onclick="deleteExpense('${e.id}')">✕</button></span>`;
             list.appendChild(li);
         });
 
+        renderCategoryPie(filtered);
         renderTrend();
         renderCompare();
         aiBox.innerHTML=generateAI(me,partner);
@@ -127,6 +165,63 @@
         if(me>partner*1.5)return'💡 Nikku is spending much more this month';
         if(partner>me*1.5)return'💡 Wifey is spending much more this month';
         return`💑 Balanced month — Nikku ${format(me)} | Wifey ${format(partner)}`;
+    }
+
+    // ===== CATEGORY PIE CHART =====
+    const categoryColors = {
+        'Food': '#f87171',
+        'Travel': '#fb923c',
+        'Groceries': '#a3e635',
+        'Shopping': '#38bdf8',
+        'Entertainment': '#c084fc',
+        'Health': '#4ade80',
+        'Common (Rent/Bills/EMIs)': '#facc15',
+        'Family Transfers': '#f472b6',
+        'Bank Deposits': '#22d3ee',
+        'Mutual Funds/Stocks': '#818cf8',
+        'Other': '#94a3b8'
+    };
+
+    function renderCategoryPie(filtered) {
+        if (categoryPieChart) categoryPieChart.destroy();
+        
+        const categoryTotals = {};
+        filtered.forEach(e => {
+            categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
+        });
+        
+        const labels = Object.keys(categoryTotals);
+        const data = Object.values(categoryTotals);
+        const colors = labels.map(cat => categoryColors[cat] || '#94a3b8');
+        
+        if (labels.length === 0) return;
+        
+        categoryPieChart = new Chart(categoryPieCtx, {
+            type: 'doughnut',
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    backgroundColor: colors,
+                    borderColor: '#0f172a',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#94a3b8', boxWidth: 12, padding: 8, font: { size: 11 } }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Category Breakdown',
+                        color: '#e5e7eb',
+                        font: { size: 14 }
+                    }
+                }
+            }
+        });
     }
 
     // ===== AUTO ARCHIVE + 6 MONTH TREND =====
@@ -156,6 +251,43 @@
 
     render();
 </script>
+<body>
+<div class="app">
+    <button id="loginBtn">Sign in with Google</button>
+    <h1>Spendly</h1>
+    <p>Couple AI-powered expense tracker</p>
+
+    <div class="row">
+        <input type="month" id="monthFilter" />
+        <!-- Month selector fix: ensure clickable on mobile/desktop -->
+    </div>
+
+    <div class="row">
+        <input id="amount" type="number" step="0.01" placeholder="Amount" />
+        <select id="currency">
+            <option value="INR">₹ INR</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option><option value="THB">฿ THB</option><option value="MYR">RM MYR</option>
+        </select>
+    </div>
+
+    <div class="row">
+        <select id="category">
+            <option>Food</option><option>Travel</option><option>Groceries</option><option>Shopping</option><option>Entertainment</option><option>Health</option><option>Common (Rent/Bills/EMIs)</option><option>Family Transfers</option><option>Bank Deposits</option><option>Mutual Funds/Stocks</option><option>Other</option>
+        </select>
+        <select id="owner"><option value="me">Nikku</option><option value="partner">Wifey</option></select>
+    </div>
+
+    <button id="addBtn">+ Add Expense</button>
+
+    <ul id="list"></ul>
+
+    <canvas id="categoryPie" height="200"></canvas>
+    <canvas id="trend" height="140"></canvas>
+    <canvas id="compare" height="140"></canvas>
+
+    <div class="ai" id="ai"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <div id="installPrompt" style="display:none;position:fixed;bottom:16px;left:16px;right:16px;background:#020617;border:1px solid #1e293b;border-radius:16px;padding:14px;color:#e5e7eb;box-shadow:0 20px 40px rgba(0,0,0,.6)">
     <strong>Install Spendly</strong>
     <p style="font-size:12px;color:#94a3b8;margin:6px 0">Track expenses faster from your home screen</p>
@@ -169,6 +301,13 @@
     if (storedVersion !== APP_VERSION) {
         localStorage.setItem('app_version', APP_VERSION);
         console.log('Spendly updated to version', APP_VERSION);
+    }
+
+    // ===== SERVICE WORKER REGISTRATION =====
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('SW registered:', reg.scope))
+            .catch(err => console.log('SW registration failed:', err));
     }
 
     // ===== INSTALL PROMPT =====
