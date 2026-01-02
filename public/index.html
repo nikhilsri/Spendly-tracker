@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#020617" />
+    <title>Spendly – Couple AI Expense Tracker</title>
+    <style>
+        :root {
+            --bg:#020617;--card:#0f172a;--accent:#38bdf8;--danger:#f87171;--text:#e5e7eb;--muted:#94a3b8;
+        }
+        *{box-sizing:border-box;font-family:Inter,system-ui}
+        body{margin:0;background:var(--bg);color:var(--text);min-height:100vh;display:flex;justify-content:center;align-items:center;padding:20px}
+        .app{width:100%;max-width:460px;background:var(--card);border-radius:24px;padding:20px;box-shadow:0 25px 60px rgba(0,0,0,.6)}
+        h1{margin:0;font-size:22px}
+        p{margin:4px 0 12px;color:var(--muted);font-size:13px}
+        .row{display:flex;gap:10px;margin-bottom:8px}
+        input,select{
+            width:100%;
+            padding:12px;
+            border-radius:14px;
+            border:none;
+            background:#020617;
+            color:var(--text);
+            font-size:14px;
+            appearance:auto;
+            -webkit-appearance:auto;
+            pointer-events:auto;
+        }
+        button{width:100%;padding:14px;border-radius:16px;border:none;background:linear-gradient(135deg,#38bdf8,#6366f1);color:#020617;font-weight:800;cursor:pointer}
+        ul{list-style:none;padding:0;margin:12px 0}
+        li{background:#020617;padding:12px 14px;border-radius:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+        .pill{font-size:11px;padding:4px 8px;border-radius:999px;background:#1e293b;color:var(--muted)}
+        .pill.me{background:#1e40af;color:#bfdbfe}
+        .pill.partner{background:#4c1d95;color:#ddd6fe}
+        .delete{background:none;border:none;color:var(--danger);cursor:pointer}
+        .ai{margin-top:12px;background:#020617;border-radius:16px;padding:12px;font-size:13px;color:var(--muted)}
+        canvas{margin-top:14px}
+    </style>
+</head>
+<body>
+<div class="app">
+    <h1>Spendly</h1>
+    <p>Couple AI-powered expense tracker</p>
+
+    <div class="row">
+        <input type="month" id="monthFilter" />
+        <!-- Month selector fix: ensure clickable on mobile/desktop -->
+    </div>
+
+    <div class="row">
+        <input id="amount" type="number" step="0.01" placeholder="Amount" />
+        <select id="currency">
+            <option value="INR">₹ INR</option><option value="USD">$ USD</option><option value="EUR">€ EUR</option><option value="THB">฿ THB</option><option value="MYR">RM MYR</option>
+        </select>
+    </div>
+
+    <div class="row">
+        <select id="category">
+            <option>Food</option><option>Travel</option><option>Groceries</option><option>Shopping</option><option>Entertainment</option><option>Health</option><option>Family Transfers</option><option>Bank Deposits</option><option>Mutual Funds/Stocks</option><option>Other</option>
+        </select>
+        <select id="owner"><option value="me">Nikku</option><option value="partner">Wifey</option></select>
+    </div>
+
+    <button id="addBtn">+ Add Expense</button>
+
+    <ul id="list"></ul>
+
+    <canvas id="trend" height="140"></canvas>
+    <canvas id="compare" height="140"></canvas>
+
+    <div class="ai" id="ai"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const monthFilter=document.getElementById('monthFilter');
+    const amountInput=document.getElementById('amount');
+    const currencyInput=document.getElementById('currency');
+    const categoryInput=document.getElementById('category');
+    const ownerInput=document.getElementById('owner');
+    const list=document.getElementById('list');
+    const aiBox=document.getElementById('ai');
+    const trendCtx=document.getElementById('trend').getContext('2d');
+    const compareCtx=document.getElementById('compare').getContext('2d');
+
+    let expenses=JSON.parse(localStorage.getItem('expenses')||'[]');
+    let trendChart=null,compareChart=null;
+
+    monthFilter.value=new Date().toISOString().slice(0,7);
+    monthFilter.addEventListener('change',render);
+
+    function addExpense(){
+        monthFilter.value=new Date().toISOString().slice(0,7);
+        const amount=Number(amountInput.value);
+        if(!amount||amount<=0)return;
+        expenses.push({id:Date.now(),amount,currency:currencyInput.value,category:categoryInput.value,owner:ownerInput.value,date:new Date().toISOString()});
+        amountInput.value='';save();
+    }
+
+    document.getElementById('addBtn').onclick=addExpense;
+
+    function deleteExpense(id){expenses=expenses.filter(e=>e.id!==id);save();}
+
+    function save(){localStorage.setItem('expenses',JSON.stringify(expenses));render();}
+
+    function render(){
+        list.innerHTML='';
+        const m=monthFilter.value;
+        const filtered=expenses.filter(e=>e.date.startsWith(m));
+        let me=0,partner=0;
+
+        filtered.slice().reverse().forEach(e=>{
+            if(e.owner==='me')me+=e.amount; else partner+=e.amount;
+            const li=document.createElement('li');
+            li.innerHTML=`<span>${e.category} <span class="pill ${e.owner}">${e.owner==='me'?'Nikku':'Wifey'}</span></span><span>${format(e.amount,e.currency)} <button class="delete" onclick="deleteExpense(${e.id})">✕</button></span>`;
+            list.appendChild(li);
+        });
+
+        renderTrend();
+        renderCompare();
+        aiBox.innerHTML=generateAI(me,partner);
+    }
+
+    function generateAI(me,partner){
+        if(me+partner===0)return'No entries this month';
+        if(me>partner*1.5)return'💡 Nikku is spending much more this month';
+        if(partner>me*1.5)return'💡 Wifey is spending much more this month';
+        return`💑 Balanced month — Nikku ${format(me)} | Wifey ${format(partner)}`;
+    }
+
+    // ===== AUTO ARCHIVE + 6 MONTH TREND =====
+    function lastMonths(n){
+        const arr=[];const d=new Date();
+        for(let i=0;i<n;i++){arr.unshift(new Date(d.getFullYear(),d.getMonth()-i,1).toISOString().slice(0,7));}
+        return arr;
+    }
+
+    function renderTrend(){
+        if(trendChart)trendChart.destroy();
+        const months=lastMonths(6);
+        const totals=months.map(m=>expenses.filter(e=>e.date.startsWith(m)).reduce((s,e)=>s+e.amount,0));
+        trendChart=new Chart(trendCtx,{type:'line',data:{labels:months,datasets:[{data:totals,label:'6‑Month Trend'}]},options:{plugins:{legend:{labels:{color:'#94a3b8'}}}}});
+    }
+
+    // ===== MONTH‑TO‑MONTH COMPARISON =====
+    function renderCompare(){
+        if(compareChart)compareChart.destroy();
+        const months=lastMonths(2);
+        const totals=months.map(m=>expenses.filter(e=>e.date.startsWith(m)).reduce((s,e)=>s+e.amount,0));
+        compareChart=new Chart(compareCtx,{type:'bar',data:{labels:months,datasets:[{data:totals,label:'Month Comparison'}]},options:{plugins:{legend:{labels:{color:'#94a3b8'}}}}});
+    }
+
+    const currencyMap={INR:{s:'₹',l:'en-IN'},USD:{s:'$',l:'en-US'},EUR:{s:'€',l:'de-DE'},THB:{s:'฿',l:'th-TH'},MYR:{s:'RM',l:'ms-MY'}};
+    function format(n,c='INR'){const x=currencyMap[c]||currencyMap.INR;return x.s+n.toLocaleString(x.l,{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+    render();
+</script>
+<div id="installPrompt" style="display:none;position:fixed;bottom:16px;left:16px;right:16px;background:#020617;border:1px solid #1e293b;border-radius:16px;padding:14px;color:#e5e7eb;box-shadow:0 20px 40px rgba(0,0,0,.6)">
+    <strong>Install Spendly</strong>
+    <p style="font-size:12px;color:#94a3b8;margin:6px 0">Track expenses faster from your home screen</p>
+    <button id="installBtn">Install App</button>
+</div>
+
+<script>
+    // ===== VERSION HANDLING =====
+    const APP_VERSION = '1.2.0';
+    const storedVersion = localStorage.getItem('app_version');
+    if (storedVersion !== APP_VERSION) {
+        localStorage.setItem('app_version', APP_VERSION);
+        console.log('Spendly updated to version', APP_VERSION);
+    }
+
+    // ===== INSTALL PROMPT =====
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', e => {
+        e.preventDefault();
+        deferredPrompt = e;
+        document.getElementById('installPrompt').style.display = 'block';
+    });
+
+    document.getElementById('installBtn').addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        document.getElementById('installPrompt').style.display = 'none';
+    });
+</script>
+</body>
+</html>
