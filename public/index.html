@@ -64,6 +64,19 @@
         .ai-loading{text-align:center;color:var(--muted);padding:20px}
         .gemini-input{margin-top:10px;display:flex;gap:8px}
         .gemini-input input{flex:1;font-size:12px}
+        .expense-summary{background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:16px;padding:16px;margin:14px 0;border:1px solid #334155}
+        .expense-summary-title{font-size:12px;color:var(--muted);margin-bottom:8px}
+        .expense-total{font-size:28px;font-weight:800;color:#f87171}
+        .expense-split{display:flex;gap:12px;margin-top:12px}
+        .expense-split-item{flex:1;background:#020617;border-radius:12px;padding:10px;text-align:center}
+        .expense-split-label{font-size:11px;color:var(--muted)}
+        .expense-split-value{font-size:16px;font-weight:700;margin-top:4px}
+        .expense-split-value.me{color:#60a5fa}
+        .expense-split-value.partner{color:#c084fc}
+        .expense-vs-budget{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
+        .expense-bar{height:8px;background:#1e293b;border-radius:99px;overflow:hidden;margin-top:6px}
+        .expense-bar-fill{height:100%;border-radius:99px;transition:width 0.3s}
+        .expense-status{font-size:11px;margin-top:6px}
     </style>
 </head>
 
@@ -181,10 +194,54 @@
             list.appendChild(li);
         });
 
+        // Update monthly expense summary
+        const totalSpent = me + partner;
+        document.getElementById('monthlyTotal').textContent = format(totalSpent);
+        document.getElementById('nikkuTotal').textContent = format(me);
+        document.getElementById('wifeyTotal').textContent = format(partner);
+
+        // Update budget comparison
+        updateBudgetComparison(totalSpent);
+
         renderCategoryPie(filtered);
         renderTrend();
         renderCompare();
         aiBox.innerHTML=generateAI(me,partner);
+    }
+
+    function updateBudgetComparison(totalSpent) {
+        // Compare against total expense budget (all spending categories except investments)
+        const budgetTotal = (budgetPlan.Rent || 0) + (budgetPlan.Entertainment || 0) + 
+                           (budgetPlan.Shopping || 0) + (budgetPlan.Food || 0) + (budgetPlan.Other || 0);
+        
+        const comparison = document.getElementById('budgetComparison');
+        const pctEl = document.getElementById('budgetUsedPct');
+        const barEl = document.getElementById('budgetUsedBar');
+        const statusEl = document.getElementById('budgetStatus');
+
+        if (budgetTotal <= 0) {
+            comparison.style.display = 'none';
+            return;
+        }
+
+        comparison.style.display = 'block';
+        const pct = (totalSpent / budgetTotal) * 100;
+        pctEl.textContent = pct.toFixed(1) + '%';
+        barEl.style.width = Math.min(pct, 100) + '%';
+
+        if (pct <= 50) {
+            barEl.style.background = '#4ade80';
+            statusEl.innerHTML = `<span style="color:#4ade80">✓ On track!</span> ${format(budgetTotal - totalSpent)} remaining`;
+        } else if (pct <= 80) {
+            barEl.style.background = '#facc15';
+            statusEl.innerHTML = `<span style="color:#facc15">⚠ ${format(budgetTotal - totalSpent)} remaining</span> — be mindful`;
+        } else if (pct <= 100) {
+            barEl.style.background = '#fb923c';
+            statusEl.innerHTML = `<span style="color:#fb923c">⚠ Almost at limit!</span> Only ${format(budgetTotal - totalSpent)} left`;
+        } else {
+            barEl.style.background = '#f87171';
+            statusEl.innerHTML = `<span style="color:#f87171">🚨 Over budget by ${format(totalSpent - budgetTotal)}!</span>`;
+        }
     }
 
     function generateAI(me,partner){
@@ -620,6 +677,32 @@ Provide suggestions in a friendly, encouraging tone. Focus on:
     </div>
 
     <button id="addBtn">+ Add Expense</button>
+
+    <!-- Monthly Expense Summary -->
+    <div class="expense-summary">
+        <div class="expense-summary-title">📅 This Month's Total Spending</div>
+        <div class="expense-total" id="monthlyTotal">₹0.00</div>
+        <div class="expense-split">
+            <div class="expense-split-item">
+                <div class="expense-split-label">Nikku</div>
+                <div class="expense-split-value me" id="nikkuTotal">₹0</div>
+            </div>
+            <div class="expense-split-item">
+                <div class="expense-split-label">Wifey</div>
+                <div class="expense-split-value partner" id="wifeyTotal">₹0</div>
+            </div>
+        </div>
+        <div class="expense-vs-budget" id="budgetComparison">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted)">
+                <span>Budget Used</span>
+                <span id="budgetUsedPct">0%</span>
+            </div>
+            <div class="expense-bar">
+                <div class="expense-bar-fill" id="budgetUsedBar" style="width:0%;background:#4ade80"></div>
+            </div>
+            <div class="expense-status" id="budgetStatus"></div>
+        </div>
+    </div>
 
     <ul id="list"></ul>
 
