@@ -77,6 +77,21 @@
         .expense-bar{height:8px;background:#1e293b;border-radius:99px;overflow:hidden;margin-top:6px}
         .expense-bar-fill{height:100%;border-radius:99px;transition:width 0.3s}
         .expense-status{font-size:11px;margin-top:6px}
+        .category-group{background:#0f172a;border-radius:14px;margin-bottom:8px;overflow:hidden}
+        .category-header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;cursor:pointer;transition:background 0.2s}
+        .category-header:hover{background:#1e293b}
+        .category-header-left{display:flex;align-items:center;gap:10px}
+        .category-icon{font-size:18px}
+        .category-name{font-size:13px;font-weight:600}
+        .category-count{font-size:11px;color:var(--muted);background:#1e293b;padding:2px 8px;border-radius:99px}
+        .category-total{font-size:14px;font-weight:700;color:var(--accent)}
+        .category-arrow{color:var(--muted);transition:transform 0.2s}
+        .category-arrow.expanded{transform:rotate(180deg)}
+        .category-items{max-height:0;overflow:hidden;transition:max-height 0.3s ease-out}
+        .category-items.expanded{max-height:1000px}
+        .category-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-top:1px solid #1e293b;font-size:13px}
+        .category-item-info{display:flex;align-items:center;gap:8px}
+        .category-item-date{font-size:11px;color:var(--muted)}
     </style>
 </head>
 
@@ -181,18 +196,75 @@
     }
     window.deleteExpense = deleteExpense;
 
+    const categoryIcons = {
+        'Food': '🍔', 'Travel': '✈️', 'Groceries': '🛒', 'Shopping': '🛍️',
+        'Entertainment': '🎬', 'Health': '💊', 'Common (Rent/Bills/EMIs)': '🏠',
+        'Family Transfers': '👨‍👩‍👧', 'Bank Deposits': '🏦', 'Mutual Funds/Stocks': '📈', 'Other': '📦'
+    };
+
     function render(){
         list.innerHTML='';
         const m=monthFilter.value;
         const filtered=expenses.filter(e=>e.date.startsWith(m));
         let me=0,partner=0;
 
-        filtered.slice().reverse().forEach(e=>{
-            if(e.owner==='me')me+=e.amount; else partner+=e.amount;
-            const li=document.createElement('li');
-            li.innerHTML=`<span>${e.category} <span class="pill ${e.owner}">${e.owner==='me'?'Nikku':'Wifey'}</span></span><span>${format(e.amount,e.currency)} <button class="delete" onclick="deleteExpense('${e.id}')">✕</button></span>`;
-            list.appendChild(li);
+        // Group expenses by category
+        const grouped = {};
+        filtered.forEach(e => {
+            if(e.owner==='me') me+=e.amount; else partner+=e.amount;
+            if (!grouped[e.category]) {
+                grouped[e.category] = { items: [], total: 0 };
+            }
+            grouped[e.category].items.push(e);
+            grouped[e.category].total += e.amount;
         });
+
+        // Sort categories by total (highest first)
+        const sortedCategories = Object.entries(grouped)
+            .sort((a, b) => b[1].total - a[1].total);
+
+        // Render grouped expenses
+        sortedCategories.forEach(([category, data]) => {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'category-group';
+            
+            const icon = categoryIcons[category] || '📦';
+            const itemCount = data.items.length;
+            
+            groupDiv.innerHTML = `
+                <div class="category-header" onclick="this.nextElementSibling.classList.toggle('expanded'); this.querySelector('.category-arrow').classList.toggle('expanded')">
+                    <div class="category-header-left">
+                        <span class="category-icon">${icon}</span>
+                        <span class="category-name">${category}</span>
+                        <span class="category-count">${itemCount} item${itemCount > 1 ? 's' : ''}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <span class="category-total">${format(data.total)}</span>
+                        <span class="category-arrow">▼</span>
+                    </div>
+                </div>
+                <div class="category-items">
+                    ${data.items.sort((a, b) => new Date(b.date) - new Date(a.date)).map(e => `
+                        <div class="category-item">
+                            <div class="category-item-info">
+                                <span class="pill ${e.owner}">${e.owner === 'me' ? 'Nikku' : 'Wifey'}</span>
+                                <span class="category-item-date">${new Date(e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px">
+                                <span>${format(e.amount, e.currency)}</span>
+                                <button class="delete" onclick="deleteExpense('${e.id}')">✕</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            list.appendChild(groupDiv);
+        });
+
+        // Show message if no expenses
+        if (sortedCategories.length === 0) {
+            list.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px">No expenses this month</div>';
+        }
 
         // Update monthly expense summary
         const totalSpent = me + partner;
@@ -704,7 +776,7 @@ Provide suggestions in a friendly, encouraging tone. Focus on:
         </div>
     </div>
 
-    <ul id="list"></ul>
+    <div id="list"></div>
 
     <canvas id="categoryPie" height="200"></canvas>
     <canvas id="trend" height="140"></canvas>
